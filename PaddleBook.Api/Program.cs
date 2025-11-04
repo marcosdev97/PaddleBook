@@ -147,6 +147,60 @@ app.MapDelete("/courts/{id:guid}", async (PaddleDbContext db, Guid id) =>
 .Produces(StatusCodes.Status204NoContent)
 .Produces(StatusCodes.Status404NotFound);
 
-// ------------------------------------------------------
+// ------------------ BOOKINGS ------------------
+
+// CREATE
+app.MapPost("/bookings", async (PaddleDbContext db, IValidator<CreateBookingDto> validator, CreateBookingDto dto) =>
+{
+    var validation = await validator.ValidateAsync(dto);
+    if (!validation.IsValid)
+        return Results.ValidationProblem(validation.ToDictionary());
+
+    // Comprobamos si la pista existe
+    var courtExists = await db.Courts.AnyAsync(c => c.Id == dto.CourtId);
+    if (!courtExists)
+        return Results.BadRequest(new { error = "Court not found" });
+
+    var booking = new Booking(Guid.NewGuid(), dto.CourtId, dto.StartTime, dto.EndTime, dto.CustomerName);
+    db.Bookings.Add(booking);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/bookings/{booking.Id}",
+        new BookingResponse(booking.Id, booking.CourtId, booking.StartTime, booking.EndTime, booking.CustomerName));
+});
+
+// GET ALL
+app.MapGet("/bookings", async (PaddleDbContext db) =>
+{
+    var list = await db.Bookings.AsNoTracking()
+        .Select(b => new BookingResponse(b.Id, b.CourtId, b.StartTime, b.EndTime, b.CustomerName))
+        .ToListAsync();
+
+    return Results.Ok(list);
+});
+
+// GET BY ID
+app.MapGet("/bookings/{id:guid}", async (PaddleDbContext db, Guid id) =>
+{
+    var b = await db.Bookings.AsNoTracking()
+        .Where(x => x.Id == id)
+        .Select(x => new BookingResponse(x.Id, x.CourtId, x.StartTime, x.EndTime, x.CustomerName))
+        .FirstOrDefaultAsync();
+
+    return b is null ? Results.NotFound() : Results.Ok(b);
+});
+
+// DELETE
+app.MapDelete("/bookings/{id:guid}", async (PaddleDbContext db, Guid id) =>
+{
+    var entity = await db.Bookings.FindAsync(id);
+    if (entity is null) return Results.NotFound();
+
+    db.Bookings.Remove(entity);
+    await db.SaveChangesAsync();
+
+    return Results.NoContent();
+});
+
 
 app.Run();

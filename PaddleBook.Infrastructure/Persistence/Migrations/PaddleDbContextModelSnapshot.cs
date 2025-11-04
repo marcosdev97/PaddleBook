@@ -22,6 +22,33 @@ namespace PaddleBook.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("PaddleBook.Domain.Entities.Booking", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CourtId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CustomerName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("EndTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("StartTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CourtId", "StartTime", "EndTime");
+
+                    b.ToTable("bookings", (string)null);
+                });
+
             modelBuilder.Entity("PaddleBook.Domain.Entities.Court", b =>
                 {
                     b.Property<Guid>("Id")
@@ -44,6 +71,17 @@ namespace PaddleBook.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_courts_name");
 
                     b.ToTable("courts", (string)null);
+                });
+
+            modelBuilder.Entity("PaddleBook.Domain.Entities.Booking", b =>
+                {
+                    b.HasOne("PaddleBook.Domain.Entities.Court", "Court")
+                        .WithMany()
+                        .HasForeignKey("CourtId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Court");
                 });
 #pragma warning restore 612, 618
         }
