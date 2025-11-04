@@ -1,10 +1,18 @@
-using Microsoft.EntityFrameworkCore;
-using PaddleBook.Infrastructure.Persistence;
-using PaddleBook.Domain.Entities;
-using PaddleBook.Api.Contracts;
 using FluentValidation;
 using FluentValidation.AspNetCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using PaddleBook.Api.Contracts;
+using PaddleBook.Domain.Entities;
+using PaddleBook.Infrastructure.Identity;
+using PaddleBook.Infrastructure.Persistence;
 using Serilog;
+using System.Data;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,7 +36,56 @@ builder.Services.AddDbContext<PaddleDbContext>(options =>
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly);
 
+// Identity Core (sin UI, para API)
+builder.Services
+    .AddIdentityCore<AppUser>(options =>
+    {
+        options.User.RequireUniqueEmail = true;
+        options.Password.RequiredLength = 6;
+        options.Password.RequireNonAlphanumeric = false;
+        options.Password.RequireUppercase = false;
+        options.Password.RequireLowercase = false;
+        options.Password.RequireDigit = false;
+    })
+    .AddRoles<IdentityRole<Guid>>()
+    .AddEntityFrameworkStores<PaddleDbContext>()
+    .AddSignInManager(); // para comprobar contraseñas en login
+
+// JWT 
+var jwtSection = builder.Configuration.GetSection("Jwt");
+var jwtKey = jwtSection["Key"]!;
+var jwtIssuer = jwtSection["Issuer"];
+var jwtAudience = jwtSection["Audience"];
+
+builder.Services
+    .AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(opt =>
+    {
+        opt.RequireHttpsMetadata = false; // en dev
+        opt.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            ClockSkew = TimeSpan.FromSeconds(30)
+        };
+    });
+
+
+builder.Services.AddAuthorization();
+
 var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
 {
@@ -202,5 +259,47 @@ app.MapDelete("/bookings/{id:guid}", async (PaddleDbContext db, Guid id) =>
     return Results.NoContent();
 });
 
+// POST /auth/register
+app.MapPost("/auth/register", async (UserManager<AppUser> users, RegisterDto dto) =>
+{
+    var user = new AppUser { UserName = dto.Email, Email = dto.Email };
+    var result = await users.CreateAsync(user, dto.Password);
+    return result.Succeeded
+        ? Results.Ok(new AuthResult("User created"))
+        : Results.BadRequest(result.Errors.Select(e => e.Description));
+});
+
+// POST /auth/login (solo verifica credenciales por ahora)
+app.MapPost("/auth/login", async (SignInManager<AppUser> signIn, UserManager<AppUser> users, LoginDto dto) =>
+{
+    var user = await users.FindByEmailAsync(dto.Email);
+    if (user is null) return Results.BadRequest("Invalid credentials");
+
+    var check = await signIn.CheckPasswordSignInAsync(user, dto.Password, false);
+    if (!check.Succeeded) return Results.BadRequest("Invalid credentials");
+
+    // claims básicos (añadir roles más adelante)
+    var claims = new List<Claim>
+    {
+        new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+        new(JwtRegisteredClaimNames.Email, user.Email ?? ""),
+        new(ClaimTypes.NameIdentifier, user.Id.ToString())
+    };
+
+    var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
+    var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+    var expires = DateTime.UtcNow.AddMinutes(int.Parse(jwtSection["ExpiresMinutes"]!));
+
+    var token = new JwtSecurityToken(
+        issuer: jwtIssuer,
+        audience: jwtAudience,
+        claims: claims,
+        expires: expires,
+        signingCredentials: creds);
+
+    var jwt = new JwtSecurityTokenHandler().WriteToken(token);
+
+    return Results.Ok(new { accessToken = jwt, expiresAt = expires });
+});
 
 app.Run();
