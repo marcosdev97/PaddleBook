@@ -1,4 +1,4 @@
-using FluentValidation;
+ï»¿using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -19,7 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Serilog: consola
 builder.Host.UseSerilog((ctx, cfg) =>
 {
-    cfg.ReadFrom.Configuration(ctx.Configuration)  // si añades settings en appsettings
+    cfg.ReadFrom.Configuration(ctx.Configuration)  // si aÃ±ades settings en appsettings
        .Enrich.FromLogContext()
        .WriteTo.Console();
 });
@@ -29,8 +29,22 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // EF Core
-builder.Services.AddDbContext<PaddleDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+var isTesting = builder.Environment.EnvironmentName == "Testing";
+var connStr = builder.Configuration.GetConnectionString("Default");
+
+if (isTesting)
+{
+    // Usar InMemory SOLO en tests
+    var dbName = builder.Configuration["TestDbName"] ?? "PaddleBook_TestDB";
+    builder.Services.AddDbContext<PaddleDbContext>(opt =>
+        opt.UseInMemoryDatabase(dbName));
+}
+else
+{
+    // ProducciÃ³n/Desarrollo normal: PostgreSQL
+    builder.Services.AddDbContext<PaddleDbContext>(opt =>
+        opt.UseNpgsql(connStr));
+}
 
 // FluentValidation
 builder.Services.AddFluentValidationAutoValidation();
@@ -49,7 +63,7 @@ builder.Services
     })
     .AddRoles<IdentityRole<Guid>>()
     .AddEntityFrameworkStores<PaddleDbContext>()
-    .AddSignInManager(); // para comprobar contraseñas en login
+    .AddSignInManager(); // para comprobar contraseÃ±as en login
 
 // JWT 
 var jwtSection = builder.Configuration.GetSection("Jwt");
@@ -58,29 +72,61 @@ var jwtIssuer = jwtSection["Issuer"];
 var jwtAudience = jwtSection["Audience"];
 
 builder.Services
-    .AddAuthentication(options =>
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =>
     {
-        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-    })
-    .AddJwtBearer(opt =>
-    {
-        opt.RequireHttpsMetadata = false; // en dev
-        opt.TokenValidationParameters = new TokenValidationParameters
+        o.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = true,
-            ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtIssuer,
-            ValidAudience = jwtAudience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-            ClockSkew = TimeSpan.FromSeconds(30)
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)),
+            RoleClaimType = ClaimTypes.Role,  // ðŸ‘ˆ importantÃ­simo
+            NameClaimType = ClaimTypes.NameIdentifier
         };
     });
 
 
-builder.Services.AddAuthorization();
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireRole("Admin"));
+});
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    var jwtScheme = new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Description = "Introduce: Bearer {tu_token_jwt}"
+    };
+
+    c.AddSecurityDefinition("Bearer", jwtScheme);
+
+    c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 var app = builder.Build();
 
@@ -93,7 +139,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Middleware simple de errores (opcional pero útil)
+// Middleware simple de errores (opcional pero Ãºtil)
 app.Use(async (ctx, next) =>
 {
     try { await next(); }
@@ -120,6 +166,7 @@ app.MapPost("/courts", async (PaddleDbContext db, IValidator<CreateCourtDto> val
 
     return Results.Created($"/courts/{court.Id}", new CourtResponse(court.Id, court.Name, court.Surface));
 })
+.RequireAuthorization("AdminOnly")
 .Produces<CourtResponse>(StatusCodes.Status201Created)
 .ProducesValidationProblem();
 
@@ -132,14 +179,14 @@ app.MapGet("/courts", async (PaddleDbContext db, [AsParameters] CourtQueryParams
     if (!string.IsNullOrWhiteSpace(query.Surface))
         courts = courts.Where(c => c.Surface.ToLower() == query.Surface.ToLower());
 
-    // búsqueda parcial por nombre
+    // bÃºsqueda parcial por nombre
     if (!string.IsNullOrWhiteSpace(query.Search))
         courts = courts.Where(c => c.Name.ToLower().Contains(query.Search.ToLower()));
 
     // total antes de paginar
     var total = await courts.CountAsync();
 
-    // paginación
+    // paginaciÃ³n
     var items = await courts
         .OrderBy(c => c.Name)
         .Skip((query.Page - 1) * query.PageSize)
@@ -187,6 +234,7 @@ app.MapPut("/courts/{id:guid}", async (PaddleDbContext db, IValidator<UpdateCour
 
     return Results.NoContent();
 })
+.RequireAuthorization("AdminOnly")
 .Produces(StatusCodes.Status204NoContent)
 .ProducesValidationProblem()
 .Produces(StatusCodes.Status404NotFound);
@@ -201,6 +249,7 @@ app.MapDelete("/courts/{id:guid}", async (PaddleDbContext db, Guid id) =>
     await db.SaveChangesAsync();
     return Results.NoContent();
 })
+.RequireAuthorization("AdminOnly")
 .Produces(StatusCodes.Status204NoContent)
 .Produces(StatusCodes.Status404NotFound);
 
@@ -224,7 +273,8 @@ app.MapPost("/bookings", async (PaddleDbContext db, IValidator<CreateBookingDto>
 
     return Results.Created($"/bookings/{booking.Id}",
         new BookingResponse(booking.Id, booking.CourtId, booking.StartTime, booking.EndTime, booking.CustomerName));
-});
+})
+  .RequireAuthorization();
 
 // GET ALL
 app.MapGet("/bookings", async (PaddleDbContext db) =>
@@ -257,7 +307,8 @@ app.MapDelete("/bookings/{id:guid}", async (PaddleDbContext db, Guid id) =>
     await db.SaveChangesAsync();
 
     return Results.NoContent();
-});
+})
+  .RequireAuthorization();
 
 // POST /auth/register
 app.MapPost("/auth/register", async (UserManager<AppUser> users, RegisterDto dto) =>
@@ -269,16 +320,26 @@ app.MapPost("/auth/register", async (UserManager<AppUser> users, RegisterDto dto
         : Results.BadRequest(result.Errors.Select(e => e.Description));
 });
 
-// POST /auth/login (solo verifica credenciales por ahora)
-app.MapPost("/auth/login", async (SignInManager<AppUser> signIn, UserManager<AppUser> users, LoginDto dto) =>
+// POST /auth/login
+app.MapPost("/auth/login", async (
+    SignInManager<AppUser> signIn,
+    UserManager<AppUser> users,
+    IConfiguration config,
+    LoginDto dto) =>
 {
+    var jwtSection = config.GetSection("Jwt");
+    var jwtKey = jwtSection["Key"]!;
+    var jwtIssuer = jwtSection["Issuer"];
+    var jwtAudience = jwtSection["Audience"];
+
     var user = await users.FindByEmailAsync(dto.Email);
     if (user is null) return Results.BadRequest("Invalid credentials");
 
     var check = await signIn.CheckPasswordSignInAsync(user, dto.Password, false);
     if (!check.Succeeded) return Results.BadRequest("Invalid credentials");
+    
+    var roles = await users.GetRolesAsync(user);
 
-    // claims básicos (añadir roles más adelante)
     var claims = new List<Claim>
     {
         new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
@@ -286,9 +347,12 @@ app.MapPost("/auth/login", async (SignInManager<AppUser> signIn, UserManager<App
         new(ClaimTypes.NameIdentifier, user.Id.ToString())
     };
 
+    foreach (var role in roles)
+        claims.Add(new Claim(ClaimTypes.Role, role));
+
     var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
     var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-    var expires = DateTime.UtcNow.AddMinutes(int.Parse(jwtSection["ExpiresMinutes"]!));
+    var expires = DateTime.UtcNow.AddMinutes(int.Parse(jwtSection["ExpiresMinutes"] ?? "60"));
 
     var token = new JwtSecurityToken(
         issuer: jwtIssuer,
@@ -302,4 +366,18 @@ app.MapPost("/auth/login", async (SignInManager<AppUser> signIn, UserManager<App
     return Results.Ok(new { accessToken = jwt, expiresAt = expires });
 });
 
+
+if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Testing")
+{
+    using var scope = app.Services.CreateScope();
+    var sp = scope.ServiceProvider;
+
+    var userManager = sp.GetRequiredService<UserManager<AppUser>>();
+    var roleManager = sp.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
+
+    await DataSeeder.SeedAsync(userManager, roleManager);
+}
+
+
 app.Run();
+public partial class Program { }
