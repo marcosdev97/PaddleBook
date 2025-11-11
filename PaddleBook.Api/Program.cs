@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using PaddleBook.Api.Contracts;
+using PaddleBook.Api.Messaging;
+using PaddleBook.Api.Messaging.Events;
 using PaddleBook.Domain.Entities;
 using PaddleBook.Infrastructure.Identity;
 using PaddleBook.Infrastructure.Persistence;
@@ -127,6 +129,10 @@ builder.Services.AddSwaggerGen(c =>
         }
     });
 });
+
+/////////////////////////////RabbitMQ Publisher/////////////////////////////
+builder.Services.Configure<RabbitOptions>(builder.Configuration.GetSection("Rabbit"));
+builder.Services.AddSingleton<IEventPublisher, RabbitMqPublisher>();
 
 var app = builder.Build();
 
@@ -256,7 +262,7 @@ app.MapDelete("/courts/{id:guid}", async (PaddleDbContext db, Guid id) =>
 // ------------------ BOOKINGS ------------------
 
 // CREATE
-app.MapPost("/bookings", async (PaddleDbContext db, IValidator<CreateBookingDto> validator, CreateBookingDto dto) =>
+app.MapPost("/bookings", async (PaddleDbContext db, IValidator<CreateBookingDto> validator, CreateBookingDto dto, IEventPublisher publisher) =>
 {
     var validation = await validator.ValidateAsync(dto);
     if (!validation.IsValid)
@@ -270,6 +276,15 @@ app.MapPost("/bookings", async (PaddleDbContext db, IValidator<CreateBookingDto>
     var booking = new Booking(Guid.NewGuid(), dto.CourtId, dto.StartTime, dto.EndTime, dto.CustomerName);
     db.Bookings.Add(booking);
     await db.SaveChangesAsync();
+
+    publisher.Publish("booking.created", new
+    {
+        booking.Id,
+        booking.CourtId,
+        booking.StartTime,
+        booking.EndTime,
+        booking.CustomerName
+    });
 
     return Results.Created($"/bookings/{booking.Id}",
         new BookingResponse(booking.Id, booking.CourtId, booking.StartTime, booking.EndTime, booking.CustomerName));
@@ -365,6 +380,23 @@ app.MapPost("/auth/login", async (
 
     return Results.Ok(new { accessToken = jwt, expiresAt = expires });
 });
+
+app.MapPost("/dev/publish-booking", (IEventPublisher publisher) =>
+{
+    var evt = new BookingCreatedEvent()
+    {
+        BookingId = Guid.NewGuid(),
+        CourtId = Guid.NewGuid(),
+        UserId = Guid.NewGuid(),
+        StartUtc = DateTime.UtcNow.AddHours(24),
+        EndUtc = DateTime.UtcNow.AddHours(25),
+        Price = 15.0m
+    };
+
+    publisher.Publish("booking.created", evt);
+    return Results.Ok(evt);
+});
+
 
 
 if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Testing")

@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36623.8 d17.14
+VisualStudioVersion = 17.14.36623.8
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PaddleBook.Api", "PaddleBook.Api\PaddleBook.Api.csproj", "{60EC17F9-0F34-42BA-AB33-70C16355BE23}"
 	ProjectSection(ProjectDependencies) = postProject
@@ -31,6 +31,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Elementos de la solución",
 		docker-compose.yml = docker-compose.yml
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NotificationService.Api", "NotificationService.Api\NotificationService.Api.csproj", "{504F9FB0-D579-F8B3-1A04-C86CF524BCE7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -57,6 +59,10 @@ Global
 		{23BB6BF1-A4AF-4AE3-A37D-5551253F3A86}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{23BB6BF1-A4AF-4AE3-A37D-5551253F3A86}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{23BB6BF1-A4AF-4AE3-A37D-5551253F3A86}.Release|Any CPU.Build.0 = Release|Any CPU
+		{504F9FB0-D579-F8B3-1A04-C86CF524BCE7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{504F9FB0-D579-F8B3-1A04-C86CF524BCE7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{504F9FB0-D579-F8B3-1A04-C86CF524BCE7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{504F9FB0-D579-F8B3-1A04-C86CF524BCE7}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16
@@ -13,3 +11,58 @@ services:
       - "5432:5432"
     volumes:
       - ./docker-data/postgres:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: paddle_rabbit
+    ports:
+      - "5672:5672"      
+    environment:
+      RABBITMQ_DEFAULT_USER: paddle
+      RABBITMQ_DEFAULT_PASS: paddle
+    networks:
+      - paddlenet
+
+  paddlebook.api:
+    build:
+      context: ./PaddleBook.Api
+      dockerfile: Dockerfile
+    container_name: paddle_api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Default: Host=host.docker.internal;Port=5432;Database=paddlebook;Username=paddle;Password=paddle
+      Jwt__Issuer: PaddleBook
+      Jwt__Audience: PaddleBook
+      Jwt__Key: please_change_me_to_a_very_long_secret_key_32+chars
+      Rabbit__Host: rabbitmq
+      Rabbit__Port: "5672"
+      Rabbit__User: paddle
+      Rabbit__Pass: paddle
+      Rabbit__Exchange: paddle.events
+    depends_on:
+      - rabbitmq
+    networks:
+      - paddlenet
+
+  notificationservice.api:
+    build:
+      context: ./NotificationService.Api
+      dockerfile: Dockerfile
+    container_name: paddle_notify
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Rabbit__Host: rabbitmq
+      Rabbit__Port: "5672"
+      Rabbit__User: paddle
+      Rabbit__Pass: paddle
+      Rabbit__Exchange: paddle.events
+      Rabbit__Queue: paddle.notifications
+      Rabbit__RoutingKey: booking.created
+    depends_on:
+      - rabbitmq
+    networks:
+      - paddlenet
+
+networks:
+  paddlenet:
+    driver: bridge
