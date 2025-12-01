@@ -2,11 +2,19 @@
 using Microsoft.Extensions.Options;
 using NotificationService.Api.Messaging;
 using NotificationService.Api.Persistence;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Rabbit config
 builder.Services.Configure<RabbitOptions>(builder.Configuration.GetSection("Rabbit"));
+
+builder.Host.UseSerilog((ctx, cfg) =>
+{
+    cfg.ReadFrom.Configuration(ctx.Configuration)
+       .Enrich.FromLogContext();
+});
+
 
 // DbContext para idempotencia
 builder.Services.AddDbContext<NotificationDbContext>(options =>
@@ -56,5 +64,6 @@ using (var scope = app.Services.CreateScope())
     }
 }
 // ---------- fin inicialización BD ----------
+app.UseSerilogRequestLogging(); // logs estructurados por cada request
 
 app.Run();
