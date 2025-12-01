@@ -7,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using PaddleBook.Api.Contracts;
 using PaddleBook.Api.Messaging;
 using PaddleBook.Api.Messaging.Events;
+using PaddleBook.Api.Middleware;
 using PaddleBook.Domain.Entities;
 using PaddleBook.Infrastructure.Identity;
 using PaddleBook.Infrastructure.Persistence;
@@ -139,6 +140,8 @@ var app = builder.Build();
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.UseMiddleware<CorrelationIdMiddleware>();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -262,7 +265,7 @@ app.MapDelete("/courts/{id:guid}", async (PaddleDbContext db, Guid id) =>
 // ------------------ BOOKINGS ------------------
 
 // CREATE
-app.MapPost("/bookings", async (PaddleDbContext db, IValidator<CreateBookingDto> validator, CreateBookingDto dto, IEventPublisher publisher) =>
+app.MapPost("/bookings", async (HttpContext httpContext, PaddleDbContext db, IValidator<CreateBookingDto> validator,CreateBookingDto dto,IEventPublisher publisher) =>
 {
     var validation = await validator.ValidateAsync(dto);
     if (!validation.IsValid)
@@ -273,23 +276,49 @@ app.MapPost("/bookings", async (PaddleDbContext db, IValidator<CreateBookingDto>
     if (!courtExists)
         return Results.BadRequest(new { error = "Court not found" });
 
-    var booking = new Booking(Guid.NewGuid(), dto.CourtId, dto.StartTime, dto.EndTime, dto.CustomerName);
+    var booking = new Booking(
+        Guid.NewGuid(),
+        dto.CourtId,
+        dto.StartTime,
+        dto.EndTime,
+        dto.CustomerName);
+
     db.Bookings.Add(booking);
     await db.SaveChangesAsync();
 
-    publisher.Publish("booking.created", new
+    // Obtenemos el CorrelationId que haya puesto el middleware (o generamos uno nuevo)
+    var correlationId = httpContext.Items["X-Correlation-Id"]?.ToString()
+                        ?? Guid.NewGuid().ToString();
+
+    // Creamos el envelope que enviamos a RabbitMQ
+    var envelope = new EventEnvelope<object>
     {
-        booking.Id,
-        booking.CourtId,
-        booking.StartTime,
-        booking.EndTime,
-        booking.CustomerName
-    });
+        EventName = "booking.created",
+        CorrelationId = correlationId,
+        CausationId = booking.Id.ToString(), // podría ser null si no quieres usar Causation aún
+        Payload = new
+        {
+            booking.Id,
+            booking.CourtId,
+            booking.StartTime,
+            booking.EndTime,
+            booking.CustomerName
+        }
+    };
+
+    // Publicamos el envelope, no el objeto suelto
+    publisher.Publish("booking.created", envelope);
 
     return Results.Created($"/bookings/{booking.Id}",
-        new BookingResponse(booking.Id, booking.CourtId, booking.StartTime, booking.EndTime, booking.CustomerName));
+        new BookingResponse(
+            booking.Id,
+            booking.CourtId,
+            booking.StartTime,
+            booking.EndTime,
+            booking.CustomerName));
 })
-  .RequireAuthorization();
+.RequireAuthorization();
+
 
 // GET ALL
 app.MapGet("/bookings", async (PaddleDbContext db) =>
