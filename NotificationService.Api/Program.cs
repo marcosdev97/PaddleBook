@@ -3,6 +3,11 @@ using Microsoft.Extensions.Options;
 using NotificationService.Api.Messaging;
 using NotificationService.Api.Persistence;
 using Serilog;
+using Prometheus;
+using OpenTelemetry;
+using OpenTelemetry.Trace;
+using OpenTelemetry.Resources;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,7 +31,23 @@ builder.Services.AddDbContext<NotificationDbContext>(options =>
 // HostedService que escucha de RabbitMQ
 builder.Services.AddHostedService<RabbitMqListener>();
 
+// OpenTelemetry Tracing
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracerProviderBuilder =>
+    {
+        tracerProviderBuilder
+            .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("NotificationService.Api"))
+            .AddAspNetCoreInstrumentation(options =>
+            {
+                options.RecordException = true;
+            })
+            .AddConsoleExporter();
+    });
+
+
 var app = builder.Build();
+
+app.UseHttpMetrics();
 
 // Endpoint mínimo para ver que el servicio está vivo
 app.MapGet("/", () => Results.Ok("NotificationService up"));
@@ -65,5 +86,6 @@ using (var scope = app.Services.CreateScope())
 }
 // ---------- fin inicialización BD ----------
 app.UseSerilogRequestLogging(); // logs estructurados por cada request
+app.MapMetrics("/metrics");
 
 app.Run();

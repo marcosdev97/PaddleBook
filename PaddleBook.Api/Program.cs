@@ -12,10 +12,15 @@ using PaddleBook.Domain.Entities;
 using PaddleBook.Infrastructure.Identity;
 using PaddleBook.Infrastructure.Persistence;
 using Serilog;
+using Prometheus;
+using OpenTelemetry;
+using OpenTelemetry.Trace;
+using OpenTelemetry.Resources;
 using System.Data;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -135,12 +140,26 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.Configure<RabbitOptions>(builder.Configuration.GetSection("Rabbit"));
 builder.Services.AddSingleton<IEventPublisher, RabbitMqPublisher>();
 
+///////////////////////// OpenTelemetry Tracing /////////////////////////////
+builder.Services.AddOpenTelemetry()
+    .WithTracing(b =>
+    {
+        b.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("PaddleBook.Api"))
+         .AddAspNetCoreInstrumentation(options =>
+         {
+             options.RecordException = true;
+         })
+         .AddHttpClientInstrumentation();
+    });
+
+
 var app = builder.Build();
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseHttpMetrics();
 
 if (app.Environment.IsDevelopment())
 {
@@ -439,6 +458,7 @@ if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Testi
     await DataSeeder.SeedAsync(userManager, roleManager);
 }
 
+app.MapMetrics("/Metrics");
 
 app.Run();
 public partial class Program { }

@@ -6,6 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using NotificationService.Api.Persistence;
+using NotificationService.Api.Observability;
+using System.Diagnostics;
 
 namespace NotificationService.Api.Messaging;
 
@@ -136,8 +138,12 @@ public sealed class RabbitMqListener : BackgroundService, IDisposable
         var consumer = new AsyncEventingBasicConsumer(_channel);
         consumer.Received += async (_, ea) =>
         {
+            using var activity = Telemetry.ActivitySource.StartActivity("ProcessBookingNotification");
+
             try
             {
+                
+
                 var json = Encoding.UTF8.GetString(ea.Body.ToArray());
 
                 var envelope = JsonSerializer.Deserialize<EventEnvelope<BookingCreatedEvent>>(
@@ -160,6 +166,10 @@ public sealed class RabbitMqListener : BackgroundService, IDisposable
 
                 using var scope = _scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
+
+                activity?.SetTag("messaging.system", "rabbitmq");
+                activity?.SetTag("messaging.destination", _cfg.Queue);
+                activity?.SetTag("messaging.message_id", envelope?.MessageId);
 
                 // Idempotencia: ¿ya procesamos este mensaje?
                 var alreadyProcessed = await db.ProcessedMessages.FindAsync(envelope.MessageId);
@@ -195,6 +205,8 @@ public sealed class RabbitMqListener : BackgroundService, IDisposable
             }
             catch (Exception ex)
             {
+                activity?.AddException(ex);
+                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                 // Cálculo de reintentos
                 var headers = ea.BasicProperties.Headers ?? new Dictionary<string, object>();
                 int currentRetry = 0;
