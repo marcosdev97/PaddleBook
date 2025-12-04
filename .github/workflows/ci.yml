@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release
+
+      # ---------- Docker build ----------
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build API Image
+        run: |
+          docker build -t ghcr.io/${{ github.repository_owner }}/paddlebook-api:latest \
+            -f PaddleBook.Api/Dockerfile .
+
+      - name: Build NotificationService Image
+        run: |
+          docker build -t ghcr.io/${{ github.repository_owner }}/notificationservice-api:latest \
+            -f NotificationService.Api/Dockerfile .
+
+      - name: Push Docker Images
+        run: |
+          docker push ghcr.io/${{ github.repository_owner }}/paddlebook-api:latest
+          docker push ghcr.io/${{ github.repository_owner }}/notificationservice-api:latest
