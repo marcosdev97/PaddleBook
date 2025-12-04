@@ -1,146 +1,228 @@
-# 🏓 PaddleBook
+# PaddleBook
 
-**PaddleBook** es un proyecto backend desarrollado en **.NET 8** que simula un sistema real de **reservas de pistas de pádel** utilizando una arquitectura moderna, orientada a escalabilidad y buenas prácticas: *Clean Architecture*, *event-driven*, microservicios y tests de integración.
+PaddleBook es un proyecto personal orientado al aprendizaje y a la
+creación de un portfolio profesional en **.NET 8**, explorando conceptos
+de arquitectura, microservicios, mensajería y observabilidad.\
+El objetivo es construir un sistema realista para gestionar reservas de
+pistas de pádel y practicar tecnologías que hoy se usan en proyectos
+backend modernos.
 
-Este proyecto forma parte de mi portfolio profesional para demostrar experiencia en C#, .NET y diseño backend avanzado.
+------------------------------------------------------------------------
 
----
+## 🎯 Objetivos del proyecto
 
-## 🚀 Tecnologías principales
+-   Practicar el desarrollo de APIs con **ASP.NET Core** y **Minimal
+    APIs**.
+-   Aplicar principios de **Clean Architecture** a pequeña escala.
+-   Implementar un flujo de eventos entre microservicios usando
+    **RabbitMQ**.
+-   Aprender patrones de resiliencia:
+    -   Trazabilidad con **CorrelationId / CausationId**
+    -   **Idempotencia** en consumidores
+    -   **Reintentos automáticos** + **DLQ**
+-   Mejorar observabilidad con:
+    -   **HealthChecks**
+    -   **Serilog**
+    -   **Prometheus (métricas)**
+    -   **OpenTelemetry (tracing)**
+-   Ejecutar todo con **Docker Compose**.
+-   Añadir integración continua (CI) real con **GitHub Actions** y
+    publicación de imágenes en GHCR.
 
-- **.NET 8 / ASP.NET Core Web API**
-- **Entity Framework Core 8**
-- **PostgreSQL** (Docker)
-- **RabbitMQ** como message broker (eventos)
-- **Identity Core** (sin UI) para autenticación JWT
-- **xUnit + FluentAssertions** para tests de integración
-- **Docker Compose** para orquestación
-- Arquitectura por capas: **Domain, Application, Infrastructure, API**
+Proyecto ideal para demostrar conocimientos profesionales aun siendo
+junior.
 
----
+------------------------------------------------------------------------
 
-## 🧩 Arquitectura del proyecto
+## 🧱 Arquitectura general
 
-El proyecto sigue una arquitectura limpia, separando responsabilidades de forma clara:
-
-| Proyecto | Responsabilidad |
-|----------|----------------|
-| **PaddleBook.Api** | Endpoints minimal API, autenticación y publicación de eventos |
-| **PaddleBook.Application** | Lógica de negocio, servicios, validaciones |
-| **PaddleBook.Domain** | Entidades, Value Objects, lógica de dominio |
-| **PaddleBook.Infrastructure** | EF Core, configuración de Identity y persistencia |
-| **NotificationService.Api** | Microservicio independiente que escucha eventos de RabbitMQ |
-| **PaddleBook.Test** | Pruebas de integración y API |
-
----
-
-## 🧠 Funcionalidades actuales
-
-### ✔️ Implementado
-
-- **Autenticación JWT** con Identity Core
-- **CRUD de pistas de pádel**
-  - Endpoints públicos y protegidos
-  - Roles: *admin* y *player*
-- **Eventos de dominio → RabbitMQ**
-  - Al crear una reserva, se publica el evento `booking.created`
-- **Microservicio NotificationService**
-  - Se subscribe a RabbitMQ y procesa eventos recibidos
-- **Tests de integración**
-  - Probar endpoints protegidos
-  - Crear un admin → login → crear pista
-- **Docker Compose**
-  - PostgreSQL
-  - RabbitMQ (con panel en localhost:15672)
-  - Servicios en contenedores
-
----
-
-## 🧪 Pruebas e integración continua
-
-- Uso de `WebApplicationFactory` para pruebas de API reales
-- DB InMemory para tests
-- Simulación de tokens JWT válidos
-
----
-
-## 🐳 Docker
-
-Para levantar todo el entorno:
-
-```bash
-docker compose up -d
+``` text
++--------------------+         RabbitMQ          +-----------------------------+
+|   PaddleBook.Api   |  --------------------->   |  NotificationService.Api    |
+|  (API pública)     |      booking.created      |  (microservicio interno)    |
++--------------------+                           +-----------------------------+
+        |                                                        |
+        | EF Core                                               | EF Core
+        v                                                        v
++--------------------+                           +-----------------------------+
+|  PostgreSQL (DB)   |                           |   PostgreSQL (idempotencia) |
++--------------------+                           +-----------------------------+
 ```
 
-Esto levantará:
+### 🟦 PaddleBook.Api
 
-- PostgreSQL → `localhost:5432`
-- RabbitMQ Management UI → `http://localhost:15672`
-- API PaddleBook
-- NotificationService
+-   Gestiona **pistas** y **reservas**.
+-   Publica eventos a RabbitMQ usando `EventEnvelope<T>`.
+-   Middleware de **CorrelationId**.
+-   Health checks, métricas, logs estructurados y trazas.
 
----
+### 🟧 NotificationService.Api
 
-## 🔧 Configuración de ejemplo
+-   Escucha el evento `booking.created`.
+-   Implementa:
+    -   **Idempotencia**
+    -   **Reintentos con delay**
+    -   **DLQ**
+-   Procesa las notificaciones de forma fiable.
 
-```json
-"Rabbit": {
-  "Host": "localhost",
-  "Port": 5672,
-  "User": "paddle",
-  "Pass": "paddle",
-  "Exchange": "paddle.events",
-  "Queue": "paddle.notifications",
-  "RoutingKey": "booking.created"
-}
+------------------------------------------------------------------------
+
+## 🧪 Tecnologías empleadas
+
+### Backend
+
+-   .NET 8 + ASP.NET Core
+-   Minimal APIs
+-   FluentValidation
+-   EF Core + PostgreSQL
+-   JWT Authentication
+
+### Mensajería y resiliencia
+
+-   RabbitMQ
+-   `EventEnvelope<T>` con CorrelationId/CausationId
+-   Idempotencia basada en tabla `ProcessedMessages`
+-   Reintentos controlados via exchange de retry + DLQ
+
+### Observabilidad
+
+-   **Serilog** → Logging estructurado (JSON)
+-   **HealthChecks** para API, DB y RabbitMQ
+-   **Prometheus** → `/metrics`
+-   **OpenTelemetry**:
+    -   ASP.NET Core instrumentation
+    -   EF Core instrumentation
+    -   HttpClient instrumentation
+    -   Spans personalizados
+
+### DevOps
+
+-   Docker + Docker Compose
+-   GitHub Actions (CI)
+    -   build → test → docker build → push to GHCR
+
+------------------------------------------------------------------------
+
+## 📁 Estructura de la solución
+
+``` text
+PaddleBook.sln
+│
+├── PaddleBook.Api/               # API pública
+│   ├── Contracts/
+│   ├── Messaging/                # Envelope, publisher
+│   ├── Middleware/               # CorrelationId
+│   ├── Validation/
+│   ├── appsettings.json
+│   └── Program.cs
+│
+├── NotificationService.Api/      # Microservicio interno
+│   ├── Messaging/
+│   ├── Persistence/
+│   ├── appsettings.json
+│   └── Program.cs
+│
+├── PaddleBook.Domain/            # Entidades
+├── PaddleBook.Infrastructure/     # EF Core + repositorios
+├── PaddleBook.Application/        # Casos de uso (ligero)
+│
+├── docker-compose.yml
+└── .github/workflows/
+       └── ci.yml                 # Pipeline CI
 ```
 
----
+------------------------------------------------------------------------
 
-## 📈 Mejoras previstas (próximos pasos)
+## ▶️ Cómo ejecutar el proyecto
 
-### 🟡 En progreso
-- Comando de creación de reservas en PaddleBook.Application  
-- Publicación consistente del evento `booking.created`  
-- Mejor manejo de errores en NotificationService  
+### Requisitos
 
-### 🔜 Próximas mejoras
-- Sistema de envío de email/SMS en NotificationService  
-- Dashboard de administración (posible Blazor o React)
-- Migración hacia microservicios completos
-- Auditoría y métricas (OpenTelemetry, Serilog, Prometheus)
-- Implementar patrón Outbox para garantizar consistencia entre DB y eventos
+-   Docker Desktop instalado
 
----
+### Levantar todo
 
-## 📸 Diagrama conceptual
-
-```
-[Cliente] → [PaddleBook.Api] → [Application Layer] → [Infrastructure / PostgreSQL]
-                                      |
-                                      |→ RabbitMQ Exchange → [NotificationService.Api]
+``` bash
+docker compose up --build
 ```
 
----
+Esto inicia:
 
-## 👨‍💻 Autor
+-   API → http://localhost:5000
+-   Swagger → http://localhost:5000/swagger
+-   RabbitMQ → http://localhost:15672 (user/pass: paddle/paddle)
+-   Métricas → http://localhost:5000/metrics
 
-**Marcos Pérez**  
-Desarrollador .NET y Unity XR  
-Repositorios y contacto:  
-🔗 https://github.com/marcosdev97
+------------------------------------------------------------------------
 
----
+## 📡 Flujo de eventos (booking.created)
 
-## ⭐ Resumen
+1.  El usuario crea una reserva desde la API.\
+2.  Se genera un `EventEnvelope<T>` con:
+    -   CorrelationId
+    -   CausationId
+    -   MessageId
+    -   Payload (la reserva)
+3.  El evento se publica en RabbitMQ.
+4.  NotificationService.Api lo consume:
+    -   Comprueba idempotencia
+    -   Procesa el mensaje
+    -   Reintenta si falla
+    -   Envía a DLQ si supera el límite
 
-PaddleBook simula un sistema real de reservas, aplicando los conceptos esenciales que hoy buscan las empresas en desarrolladores backend:
+------------------------------------------------------------------------
 
-- Buenas prácticas
-- Arquitectura limpia
-- Microservicios
-- Mensajería asíncrona
-- Contenedores
-- Seguridad y pruebas automatizadas
+## 🔍 Observabilidad
 
-Ideal para demostrar habilidades prácticas en C# / .NET.
+### Health Checks
+
+-   `/health`\
+    Comprueba API, Postgres y RabbitMQ.
+
+### Prometheus
+
+-   `/metrics`\
+    Métricas HTTP + personalizadas.
+
+### OpenTelemetry Tracing
+
+-   Instrumentación completa para:
+    -   Solicitudes HTTP
+    -   DB queries
+    -   Mensajes procesados
+-   Exportación a consola en contenedores (fácil de conectar luego a
+    Jaeger/Tempo).
+
+------------------------------------------------------------------------
+
+## 🔄 CI/CD (solo CI activado actualmente)
+
+Este repositorio incluye un pipeline **CI** con GitHub Actions:
+
+-   Compila la solución
+-   Ejecuta tests
+-   Construye imágenes Docker
+-   Publica en **GitHub Container Registry (GHCR)**
+
+Imágenes disponibles:
+
+    ghcr.io/marcosdev97/paddlebook-api:latest
+    ghcr.io/marcosdev97/notificationservice-api:latest
+
+------------------------------------------------------------------------
+
+## 🌱 Trabajo futuro (ideas para seguir creciendo)
+
+-   Migrar RabbitMQ → **Azure Service Bus**
+-   Añadir un microservicio adicional (ej. "Payments")
+-   Añadir dashboards reales con **Grafana**
+-   Añadir CD real hacia Azure Container Apps
+-   Crear tests de integración del flujo de mensajería
+-   Añadir endpoints avanzados para administración
+
+------------------------------------------------------------------------
+
+## 👤 Autor
+
+Proyecto creado por **Marcos Pérez**, desarrollador .NET en crecimiento,
+con el objetivo de aprender arquitectura moderna, mensajería y
+observabilidad, y construir un portfolio técnico sólido.
